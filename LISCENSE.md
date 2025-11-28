@@ -1,6 +1,5 @@
 #  **LICENSE (MIT License)**
 
-```text
 MIT License
 
 Copyright (c) 2025 
