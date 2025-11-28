@@ -37,7 +37,7 @@ cargo run
 ./dist/sonix_lyrics
 
 
-### ⚙️ Configuration
+###  Configuration
 
 Create a file named:
 
