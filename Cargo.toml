@@ -12,35 +12,26 @@ readme = "README.md"
 keywords = ["navidrome", "lyrics", "tui", "karaoke", "music"]
 categories = ["command-line-utilities", "multimedia"]
 
-# ────────────────────────────────────────────────
-# Dependencies
-# ────────────────────────────────────────────────
 [dependencies]
 
-# Terminal UI
 crossterm = "0.27"
 ratatui = { version = "0.28", default-features = false, features = ["crossterm"] }
 
-# Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# HTTP client
 reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"] }
 
-# Error handling
 thiserror = "1.0"
 
-# Channels & timers
 crossbeam-channel = "0.5"
 
-# Config (your .conf loader replaces dotenvy eventually)
-dotenvy = "0.15"
 
-# Utility
 urlencoding = "2.1"
 chrono = { version = "0.4.42", features = ["serde"] }
 
-# Logging
 log = "0.4"
 simplelog = "0.12"
+
+md5 = "0.7"
+rand = "0.8"

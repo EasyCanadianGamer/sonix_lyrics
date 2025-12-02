@@ -1,17 +1,19 @@
 # Sonix Lyrics
 
-A fast terminal-based synced lyrics + karaoke client for Navidrome, built in Rust with Ratatui.
+A fast terminal-based synced lyrics + karaoke client for Navidrome (Subsonic API) built in Rust with Ratatui. Functional today with Subsonic-compatible servers only.
 
-![Sonix Lyrics Screenshot](assets/screenshot.png)
+![Sonix Lyrics First Time Setup](assets/sonix_lyrics_setup.png)
+
+![Sonix Lyrics Screenshot](assets/Sonix_lyrics_screenshot.png)
 
 ---
 
 ## Features
 
 - **Real-time synced lyrics (LRC)**
-- **Karaoke mode** (word-by-word) ( a bit buggy )
-- Auto-detects currently playing track from **Navidrome**
-- Smooth, drift-free playback timer
+- **Karaoke mode** (word-by-word) — currently disabled while we fix stability issues
+- Auto-detects currently playing track from **Navidrome** (Subsonic API)
+- Smooth, drift-free playback timer — currently disabled because it is very buggy
 - Clean TUI using Ratatui + Crossterm
 - Fully configurable via `config.conf`
 - Works without `.env` files
@@ -19,22 +21,27 @@ A fast terminal-based synced lyrics + karaoke client for Navidrome, built in Rus
 
 ---
 
+## TODO / Known Issues
+
+- Fix karaoke sync/highlighting so the feature can be turned back on by default.
+- Rework the smooth playback timer so it no longer drifts and can be re-enabled safely.
+
+---
+
+> **Note:** Sonix Lyrics currently ships and is actively tested on Nix. It should work on other Linux distributions, but there may be rough edges until verified. Please report any distro-specific issues.
+
 ## Installation
+
+Ensure you have a recent Rust toolchain (stable) installed via [`rustup`](https://rustup.rs/) so `cargo build` and `cargo run` are available.
 
 ### **Clone the repository**
 
 ```bash
-git clone https://github.com/CanadianGamer23/sonix_lyrics
+git clone https://github.com/EasyCanadianGamer/sonix_lyrics.git
 cd sonix_lyrics
 
-# Run in debug mode
+# Run with cargo (requires Rust toolchain)
 cargo run
-
-# Build release version
-./build-release.sh
-
-# Output will appear in:
-./dist/sonix_lyrics
 
 
 ###  Configuration
@@ -62,12 +69,22 @@ REFRESH_INTERVAL = 2
 KARAOKE_ENABLED = false
 ```
 
+### Easy Install
+
+Go to the latest release and just download the binary
+
 ## Usage
 
 Start the TUI:
 
 ```bash
 ./sonix_lyrics
+```
+
+The config is in:
+
+```bash
+~/.config/sonix_lyrix/config.conf
 ```
 
 Controls:
@@ -82,42 +99,47 @@ Controls:
 
 ---
 
-##  Project Structure
+## Project Structure
 
 ```
+assets/
+  ├─ videos/images for readme
+script/
+  ├─ build-release.sh  # Build script
 src/
   ├─ main.rs      # TUI runtime
   ├─ navidrome.rs  # Navidrome API
   ├─ lyrics.rs     # Lyrics fetching + parsing
-  ├─ config.rs     # Config loader
+  ├─ config.rs     # Config loader/config creation
+  ├─ setup.rs     # setup tui
 config.conf       # User configuration
-build-release.sh  # Build script
 LICENSE           # MIT license
 README.md         # This file
 ```
 
 ---
 
-##  License
+## License
 
-This project is licensed under the MIT License — see LICENSE
+This project is licensed under the MIT License — see [LICENSE](./LICENSE)
 
 ---
 
-##  Contributing
+## Contributing
 
 Pull requests and improvements are welcome.
 Feel free to open issues or feature requests.
+Check more at [CONTRIBUTION.md](./CONTRIBUTION.MD)
 
 ---
 
 ## Credit
 
-Made by CanadianGamer
+Made by CanadianGamer ( so far but willing to add more contributors)
 Powered by:
 
 - Rust
 - Ratatui
 - Crossterm
-- Navidrome
+- Subsonic API
 - LRC sources from lrclib.net

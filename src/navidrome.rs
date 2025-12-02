@@ -1,4 +1,4 @@
-use reqwest::blocking::{Client, ClientBuilder};
+use reqwest::blocking::{ClientBuilder};
 use serde::Deserialize;
 use thiserror::Error;
 use chrono::{DateTime, Utc};

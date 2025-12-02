@@ -1,18 +1,15 @@
 mod navidrome;
 mod lyrics;
 mod config;
+mod setup;
 
 use chrono::{DateTime, Utc};
 use crossbeam_channel::{bounded, select};
 use crossterm::{
     event::{self, Event, KeyCode, EnableMouseCapture, DisableMouseCapture},
     execute,
-    terminal::{
-        disable_raw_mode, enable_raw_mode,
-        EnterAlternateScreen, LeaveAlternateScreen,
-    },
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-
 use log::{info, error};
 use ratatui::{
     backend::CrosstermBackend,
@@ -28,37 +25,28 @@ use std::io;
 use std::time::{Duration, Instant};
 
 use navidrome::{Track, get_current_track};
-use lyrics::{LyricsData};
-use lyrics::{SyncedLine, KaraokeWord};
+use lyrics::SyncedLine;
 use config::Config;
 
-
-/// ============================================================
-/// Application State
-/// ============================================================
-
+// ----------------------------------------
+// App State
+// ----------------------------------------
 #[derive(Debug)]
 struct AppState {
     config: Config,
-
     track: Option<Track>,
 
-    // timing
     duration_seconds: u32,
     start_timestamp_utc: Option<DateTime<Utc>>,
     progress_seconds: u32,
     progress: f32,
 
-    // lyrics
     raw_lyrics: Vec<String>,
     synced: Vec<SyncedLine>,
     cached_lines: Vec<Line<'static>>,
 
-    // lyric scroll
     current_line: u16,
     scroll: u16,
-
-    // karaoke word
     current_word: Option<String>,
 
     status: String,
@@ -83,20 +71,15 @@ impl AppState {
             scroll: 0,
             current_word: None,
 
-            status: "Press r to refresh · q to quit · j/k scroll".into(),
+            status: "Press r to refresh • q to quit • j/k to scroll".into(),
         }
     }
 }
 
-
-
-/// ============================================================
-/// MAIN
-/// ============================================================
-
+// ----------------------------------------
+// Main entry
+// ----------------------------------------
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-
-    // Logging
     CombinedLogger::init(vec![
         WriteLogger::new(
             LevelFilter::Info,
@@ -107,12 +90,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Sonix Lyrics starting…");
 
-    // Load config
-    let config = Config::load();
+    let config = Config::load_or_setup();
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
 
     let backend = CrosstermBackend::new(stdout);
@@ -126,7 +107,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         LeaveAlternateScreen,
         DisableMouseCapture
     )?;
-
     terminal.show_cursor()?;
 
     if let Err(e) = result {
@@ -137,30 +117,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
-
-/// ============================================================
-/// Main TUI Loop
-/// ============================================================
-
+// ----------------------------------------
+// Main TUI Loop
+// ----------------------------------------
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: Config) -> io::Result<()> {
     let mut app = AppState::new(cfg.clone());
 
-    // Channel for metadata thread
+    // metadata thread
     let (meta_tx, meta_rx) = bounded::<Track>(1);
-
-    // Background metadata fetcher
     let refresh_interval = app.config.refresh_interval;
+
     std::thread::spawn(move || loop {
         match get_current_track(&cfg) {
             Ok(track) => { let _ = meta_tx.send(track); }
             Err(e) => error!("Navidrome error: {}", e),
         }
-
         std::thread::sleep(Duration::from_secs(refresh_interval));
     });
 
-    // Tick channel (100ms)
+    // tick thread
     let (tick_tx, tick_rx) = bounded::<()>(1);
     std::thread::spawn(move || loop {
         let _ = tick_tx.send(());
@@ -170,16 +145,12 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: Config) -> io
     let mut last_draw = Instant::now();
 
     loop {
-        // -----------------------------
-        // Metadata update
-        // -----------------------------
+        // metadata update
         if let Ok(track) = meta_rx.try_recv() {
             apply_track_update(&mut app, track);
         }
 
-        // -----------------------------
-        // Playback clock
-        // -----------------------------
+        // playback clock
         let pos = if let Some(start) = app.start_timestamp_utc {
             let now = Utc::now();
             let diff = now.signed_duration_since(start).num_milliseconds();
@@ -190,12 +161,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: Config) -> io
 
         app.progress_seconds = pos.floor() as u32;
         app.progress = if app.duration_seconds > 0 {
-             pos / app.duration_seconds as f32
+            pos / app.duration_seconds as f32
         } else { 0.0 };
 
-        // -----------------------------
-        // Karaoke word highlight
-        // -----------------------------
+        // karaoke word
         app.current_word = None;
         let ms = (pos * 1000.0) as u32;
 
@@ -211,15 +180,11 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: Config) -> io
             }
         }
 
-        // -----------------------------
-        // Auto-scroll synced lyrics
-        // -----------------------------
+        // auto scroll
         if !app.synced.is_empty() {
             let mut idx = 0;
-
             for (i, l) in app.synced.iter().enumerate() {
-                if l.time_ms <= ms { idx = i; }
-                else { break; }
+                if l.time_ms <= ms { idx = i; } else { break; }
             }
 
             if idx as u16 != app.current_line {
@@ -228,37 +193,29 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: Config) -> io
             }
         }
 
-        // -----------------------------
-        // Draw UI
-        // -----------------------------
+        // draw UI
         if last_draw.elapsed() >= Duration::from_millis(33) {
             terminal.draw(|f| ui(f, &app))?;
             last_draw = Instant::now();
         }
 
-        // -----------------------------
-        // Input
-        // -----------------------------
+        // handle input
         select! {
             recv(tick_rx) -> _ => {},
-
             default(Duration::from_millis(10)) => {
                 if event::poll(Duration::from_millis(10))? {
                     match event::read()? {
                         Event::Key(key) => match key.code {
                             KeyCode::Char('q') => return Ok(()),
-
                             KeyCode::Char('r') => {
                                 if let Ok(track) = get_current_track(&app.config) {
                                     apply_track_update(&mut app, track);
                                 }
                             }
-
                             KeyCode::Down | KeyCode::Char('j') => app.scroll += 1,
                             KeyCode::Up   | KeyCode::Char('k') => {
                                 app.scroll = app.scroll.saturating_sub(1)
                             }
-
                             _ => {}
                         },
                         _ => {}
@@ -269,12 +226,9 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: Config) -> io
     }
 }
 
-
-
-/// ============================================================
-/// When track metadata changes
-/// ============================================================
-
+// ----------------------------------------
+// Handle metadata update
+// ----------------------------------------
 fn apply_track_update(app: &mut AppState, track: Track) {
     let previous_title = app.track.as_ref().map(|t| t.title.clone());
     let previous_timestamp = app.track.as_ref().and_then(|t| t.played_timestamp);
@@ -282,30 +236,23 @@ fn apply_track_update(app: &mut AppState, track: Track) {
     let song_changed = previous_title != Some(track.title.clone());
     let restarted = previous_timestamp != track.played_timestamp;
 
-    // Always update state
     app.track = Some(track.clone());
     app.duration_seconds = track.duration;
     app.start_timestamp_utc = track.played_timestamp;
 
-    // Reset timer when:
-    //  ✔ new song
-    //  ✔ same song looped
     if song_changed || restarted {
         app.progress_seconds = 0;
         app.progress = 0.0;
     }
 
-    // Fetch lyrics ONLY if changed
     if song_changed {
         match lyrics::fetch_lyrics(&track.artist, &track.title) {
             Ok(ld) => {
                 app.raw_lyrics = ld.lines.clone();
                 app.synced = ld.synced.clone();
                 app.cached_lines = cache_lines(&app.raw_lyrics);
-
                 app.current_line = 0;
                 app.scroll = 0;
-
                 app.status = format!("Now playing: {}", track.title);
                 info!("Loaded lyrics for {}", track.title);
             }
@@ -313,7 +260,6 @@ fn apply_track_update(app: &mut AppState, track: Track) {
                 app.raw_lyrics = vec!["No lyrics found".into()];
                 app.synced.clear();
                 app.cached_lines = cache_lines(&app.raw_lyrics);
-
                 app.status = format!("Lyrics not found ({})", e);
                 error!("Lyrics error: {}", e);
             }
@@ -321,24 +267,18 @@ fn apply_track_update(app: &mut AppState, track: Track) {
     }
 }
 
-
-
-/// ============================================================
-/// Cache lyric lines for ratatui
-/// ============================================================
-
+// ----------------------------------------
+// Cache lyric lines for TUI
+// ----------------------------------------
 fn cache_lines(raw: &[String]) -> Vec<Line<'static>> {
     raw.iter()
         .map(|l| Line::from(Box::leak(l.clone().into_boxed_str()).to_string()))
         .collect()
 }
 
-
-
-/// ============================================================
-/// UI
-/// ============================================================
-
+// ----------------------------------------
+// UI
+// ----------------------------------------
 fn ui(f: &mut Frame, app: &AppState) {
     let area = f.area();
 
@@ -365,32 +305,38 @@ fn render_left(app: &AppState) -> Paragraph<'static> {
             Span::raw(t.artist.clone()),
         ]));
 
-        // Progress bar
-        // if app.duration_seconds > 0 {
-        //     let width = 22;
-        //     let filled = (app.progress * width as f32) as usize;
+        if !t.album.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("Album: ", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(t.album.clone()),
+            ]));
+        }
 
-        //     let bar = format!(
-        //         "[{}{}]",
+        // // progress bar
+        // if app.duration_seconds > 0 {
+        //     let width = 20;
+        //     let filled = (app.progress * width as f32).round() as usize;
+        //     let bar = [
         //         "█".repeat(filled.min(width)),
         //         "░".repeat(width - filled.min(width))
-        //     );
+        //     ].join("");
 
         //     lines.push(Line::default());
-        //     lines.push(Line::from(Span::styled(
-        //         format!(
-        //             "{} {:02}:{:02} / {:02}:{:02}",
-        //             bar,
-        //             app.progress_seconds / 60,
-        //             app.progress_seconds % 60,
-        //             app.duration_seconds / 60,
-        //             app.duration_seconds % 60,
-        //         ),
-        //         Style::default().fg(Color::Green),
-        //     )));
+        //     lines.push(Line::from(
+        //         Span::styled(
+        //             format!(
+        //                 "[{}] {:02}:{:02} / {:02}:{:02}",
+        //                 bar,
+        //                 app.progress_seconds / 60,
+        //                 app.progress_seconds % 60,
+        //                 app.duration_seconds / 60,
+        //                 app.duration_seconds % 60
+        //             ),
+        //             Style::default().fg(Color::Green)
+        //         )
+        //     ));
         // }
 
-        // Karaoke active word
         if let Some(w) = &app.current_word {
             lines.push(Line::default());
             lines.push(Line::from(
@@ -402,7 +348,6 @@ fn render_left(app: &AppState) -> Paragraph<'static> {
         }
     }
 
-    // Status
     lines.push(Line::default());
     lines.push(Line::from(Span::styled(
         app.status.clone(),
@@ -421,17 +366,22 @@ fn render_left(app: &AppState) -> Paragraph<'static> {
 fn render_lyrics(app: &AppState) -> Paragraph<'static> {
     let mut lines = app.cached_lines.clone();
 
-if app.config.karaoke_enabled {
-    if let Some(line) = lines.get_mut(app.current_line as usize) {
-        *line = Line::from(
-            Span::styled(
-                line.to_string(),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-            )
-        );
-    }
-}
+    if app.config.karaoke_enabled {
+        if let Some(line) = lines.get_mut(app.current_line as usize) {
+            let display = app
+                .synced
+                .get(app.current_line as usize)
+                .map(|s| s.text.clone())
+                .unwrap_or_else(|| line.to_string());
 
+            *line = Line::from(
+                Span::styled(
+                    display,
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                )
+            );
+        }
+    }
 
     Paragraph::new(lines)
         .block(

@@ -131,7 +131,7 @@ fn search(q: &str) -> Result<Vec<LrcLibResult>, LyricsError> {
 }
 
 pub fn fetch_lyrics(artist: &str, title: &str) -> Result<LyricsData, LyricsError> {
-    let mut res = search(title)
+    let res = search(title)
         .or_else(|_| search(&format!("{} {}", artist, title)))?;
 
     if res.is_empty() {
@@ -139,6 +139,7 @@ pub fn fetch_lyrics(artist: &str, title: &str) -> Result<LyricsData, LyricsError
     }
 
     let best = &res[0];
+    log::debug!("Using lrclib result: {} - {}", best.artist, best.track);
 
     let lines = if let Some(ref p) = best.plain {
         p.lines().map(|s| s.to_string()).collect()
