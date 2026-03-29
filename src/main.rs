@@ -24,9 +24,15 @@ use std::fs::File;
 use std::io;
 use std::time::{Duration, Instant};
 
-use navidrome::{Track, get_current_track};
+use navidrome::{Track, Playlist, PlaylistTrack, get_current_track, get_playlists, get_playlist_tracks, jukebox_play};
 use lyrics::SyncedLine;
 use config::Config;
+
+#[derive(Debug, PartialEq)]
+enum AppView { NowPlaying, PlaylistBrowser }
+
+#[derive(Debug, PartialEq)]
+enum PlaylistFocus { Playlists, Tracks }
 
 // ----------------------------------------
 // App State
@@ -50,6 +56,13 @@ struct AppState {
     current_word: Option<String>,
 
     status: String,
+
+    view: AppView,
+    playlists: Vec<Playlist>,
+    playlist_cursor: usize,
+    tracks: Vec<PlaylistTrack>,
+    track_cursor: usize,
+    playlist_focus: PlaylistFocus,
 }
 
 impl AppState {
@@ -71,7 +84,14 @@ impl AppState {
             scroll: 0,
             current_word: None,
 
-            status: "Press r to refresh • q to quit • j/k to scroll".into(),
+            status: "Press r to refresh • p playlists • q to quit • j/k to scroll".into(),
+
+            view: AppView::NowPlaying,
+            playlists: vec![],
+            playlist_cursor: 0,
+            tracks: vec![],
+            track_cursor: 0,
+            playlist_focus: PlaylistFocus::Playlists,
         }
     }
 }
@@ -130,6 +150,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: Config) -> io
     std::thread::spawn(move || loop {
         match get_current_track(&cfg) {
             Ok(track) => { let _ = meta_tx.send(track); }
+            Err(navidrome::NavidromeError::NoTrack) => {}
             Err(e) => error!("Navidrome error: {}", e),
         }
         std::thread::sleep(Duration::from_secs(refresh_interval));
@@ -207,15 +228,115 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: Config) -> io
                     match event::read()? {
                         Event::Key(key) => match key.code {
                             KeyCode::Char('q') => return Ok(()),
-                            KeyCode::Char('r') => {
-                                if let Ok(track) = get_current_track(&app.config) {
-                                    apply_track_update(&mut app, track);
+
+                            KeyCode::Char('p') => {
+                                if app.view == AppView::NowPlaying {
+                                    app.view = AppView::PlaylistBrowser;
+                                    app.playlist_cursor = 0;
+                                    app.track_cursor = 0;
+                                    app.tracks = vec![];
+                                    app.playlist_focus = PlaylistFocus::Playlists;
+                                    match get_playlists(&app.config) {
+                                        Ok(pls) => app.playlists = pls,
+                                        Err(e) => error!("Playlists error: {}", e),
+                                    }
+                                } else {
+                                    app.view = AppView::NowPlaying;
                                 }
                             }
-                            KeyCode::Down | KeyCode::Char('j') => app.scroll += 1,
-                            KeyCode::Up   | KeyCode::Char('k') => {
-                                app.scroll = app.scroll.saturating_sub(1)
+
+                            KeyCode::Esc => {
+                                if app.view == AppView::PlaylistBrowser {
+                                    app.view = AppView::NowPlaying;
+                                }
                             }
+
+                            KeyCode::Tab => {
+                                if app.view == AppView::PlaylistBrowser {
+                                    app.playlist_focus = match app.playlist_focus {
+                                        PlaylistFocus::Playlists => PlaylistFocus::Tracks,
+                                        PlaylistFocus::Tracks => PlaylistFocus::Playlists,
+                                    };
+                                }
+                            }
+
+                            KeyCode::Enter => {
+                                if app.view == AppView::PlaylistBrowser {
+                                    match app.playlist_focus {
+                                        PlaylistFocus::Playlists => {
+                                            if let Some(pl) = app.playlists.get(app.playlist_cursor) {
+                                                match get_playlist_tracks(&app.config, &pl.id.clone()) {
+                                                    Ok(tracks) => {
+                                                        app.tracks = tracks;
+                                                        app.track_cursor = 0;
+                                                        app.playlist_focus = PlaylistFocus::Tracks;
+                                                    }
+                                                    Err(e) => error!("Tracks error: {}", e),
+                                                }
+                                            }
+                                        }
+                                        PlaylistFocus::Tracks => {
+                                            if !app.tracks.is_empty() {
+                                                let ids: Vec<String> = app.tracks[app.track_cursor..]
+                                                    .iter()
+                                                    .chain(app.tracks[..app.track_cursor].iter())
+                                                    .map(|t| t.id.clone())
+                                                    .collect();
+                                                match jukebox_play(&app.config, &ids) {
+                                                    Ok(()) => {
+                                                        info!("Jukebox started");
+                                                        app.view = AppView::NowPlaying;
+                                                    }
+                                                    Err(e) => error!("Jukebox error: {}", e),
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                if app.view == AppView::PlaylistBrowser {
+                                    match app.playlist_focus {
+                                        PlaylistFocus::Playlists => {
+                                            if app.playlist_cursor + 1 < app.playlists.len() {
+                                                app.playlist_cursor += 1;
+                                            }
+                                        }
+                                        PlaylistFocus::Tracks => {
+                                            if app.track_cursor + 1 < app.tracks.len() {
+                                                app.track_cursor += 1;
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    app.scroll += 1;
+                                }
+                            }
+
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                if app.view == AppView::PlaylistBrowser {
+                                    match app.playlist_focus {
+                                        PlaylistFocus::Playlists => {
+                                            app.playlist_cursor = app.playlist_cursor.saturating_sub(1);
+                                        }
+                                        PlaylistFocus::Tracks => {
+                                            app.track_cursor = app.track_cursor.saturating_sub(1);
+                                        }
+                                    }
+                                } else {
+                                    app.scroll = app.scroll.saturating_sub(1);
+                                }
+                            }
+
+                            KeyCode::Char('r') => {
+                                if app.view == AppView::NowPlaying {
+                                    if let Ok(track) = get_current_track(&app.config) {
+                                        apply_track_update(&mut app, track);
+                                    }
+                                }
+                            }
+
                             _ => {}
                         },
                         _ => {}
@@ -280,15 +401,93 @@ fn cache_lines(raw: &[String]) -> Vec<Line<'static>> {
 // UI
 // ----------------------------------------
 fn ui(f: &mut Frame, app: &AppState) {
+    match app.view {
+        AppView::NowPlaying => {
+            let area = f.area();
+            let layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
+                .split(area);
+            f.render_widget(render_left(app), layout[0]);
+            f.render_widget(render_lyrics(app), layout[1]);
+        }
+        AppView::PlaylistBrowser => render_playlists(f, app),
+    }
+}
+
+fn render_playlists(f: &mut Frame, app: &AppState) {
     let area = f.area();
 
+    // Split: 30% playlists, 70% tracks
     let layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
+        .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
         .split(area);
 
-    f.render_widget(render_left(app), layout[0]);
-    f.render_widget(render_lyrics(app), layout[1]);
+    // ---- left: playlist list ----
+    let pl_focus = app.playlist_focus == PlaylistFocus::Playlists;
+    let pl_lines: Vec<Line> = if app.playlists.is_empty() {
+        vec![Line::from(Span::styled("Loading…", Style::default().fg(Color::DarkGray)))]
+    } else {
+        app.playlists.iter().enumerate().map(|(i, p)| {
+            let label = format!(" {} ({} tracks)", p.name, p.song_count);
+            if i == app.playlist_cursor && pl_focus {
+                Line::from(Span::styled(label, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+            } else if i == app.playlist_cursor {
+                Line::from(Span::styled(label, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)))
+            } else {
+                Line::from(Span::raw(label))
+            }
+        }).collect()
+    };
+
+    let pl_border = if pl_focus { Style::default().fg(Color::Green) } else { Style::default().fg(Color::DarkGray) };
+    f.render_widget(
+        Paragraph::new(pl_lines)
+            .block(Block::default().borders(Borders::ALL).title("Playlists").border_style(pl_border))
+            .wrap(Wrap { trim: false }),
+        layout[0],
+    );
+
+    // ---- right: track list ----
+    let tr_focus = app.playlist_focus == PlaylistFocus::Tracks;
+    let tr_lines: Vec<Line> = if app.tracks.is_empty() {
+        vec![Line::from(Span::styled(
+            "Select a playlist and press Enter",
+            Style::default().fg(Color::DarkGray),
+        ))]
+    } else {
+        app.tracks.iter().enumerate().map(|(i, t)| {
+            let mins = t.duration / 60;
+            let secs = t.duration % 60;
+            let label = format!(" {}. {} — {} ({:02}:{:02})", i + 1, t.title, t.artist, mins, secs);
+            if i == app.track_cursor && tr_focus {
+                Line::from(Span::styled(label, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+            } else if i == app.track_cursor {
+                Line::from(Span::styled(label, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)))
+            } else {
+                Line::from(Span::raw(label))
+            }
+        }).collect()
+    };
+
+    let tr_border = if tr_focus { Style::default().fg(Color::Green) } else { Style::default().fg(Color::DarkGray) };
+    let track_title = if let Some(pl) = app.playlists.get(app.playlist_cursor) {
+        format!("Tracks — {}", pl.name)
+    } else {
+        "Tracks".to_string()
+    };
+
+    // scroll so selected track stays visible
+    let tr_scroll = if tr_focus && app.track_cursor > 5 { (app.track_cursor - 5) as u16 } else { 0 };
+
+    f.render_widget(
+        Paragraph::new(tr_lines)
+            .block(Block::default().borders(Borders::ALL).title(track_title).border_style(tr_border))
+            .scroll((tr_scroll, 0))
+            .wrap(Wrap { trim: false }),
+        layout[1],
+    );
 }
 
 fn render_left(app: &AppState) -> Paragraph<'static> {
