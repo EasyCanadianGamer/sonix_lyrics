@@ -1,16 +1,16 @@
 // src/setup.rs
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-    widgets::{Block, Borders, Paragraph},
-    layout::{Layout, Constraint, Direction},
-    style::{Style, Color, Modifier},
-    text::{Span, Line},
-};
 use crossterm::{
     event::{self, Event, KeyCode},
-    terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph},
+    Terminal,
 };
 use std::io::{self};
 
@@ -41,51 +41,62 @@ pub fn run_setup_wizard() -> Config {
     let mut terminal = Terminal::new(backend).unwrap();
 
     loop {
-        terminal.draw(|f| {
-            let size = f.area();
+        terminal
+            .draw(|f| {
+                let size = f.area();
 
-            let block = Block::default()
-                .title("Sonix Lyrics — First-Time Setup")
-                .borders(Borders::ALL);
+                let block = Block::default()
+                    .title("Sonix Lyrics — First-Time Setup")
+                    .borders(Borders::ALL);
 
-            let layout = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(3),
-                    Constraint::Length(3),
-                    Constraint::Length(3),
-                    Constraint::Length(2),
-                    Constraint::Length(1),
-                ])
-                .split(size);
+                let layout = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Length(3),
+                        Constraint::Length(3),
+                        Constraint::Length(3),
+                        Constraint::Length(2),
+                        Constraint::Length(1),
+                    ])
+                    .split(size);
 
-            f.render_widget(block, size);
+                f.render_widget(block, size);
 
-            let url_disp = format!("[ {} ]", url);
-            let usr_disp = format!("[ {} ]", user);
-            let pwd_disp = format!("[ {} ]", "*".repeat(pass.len()));
+                let url_disp = format!("[ {} ]", url);
+                let usr_disp = format!("[ {} ]", user);
+                let pwd_disp = format!("[ {} ]", "*".repeat(pass.len()));
 
-            f.render_widget(Paragraph::new(Line::from(vec![
-                Span::styled("Navidrome URL: ", bold()),
-                Span::raw(url_disp),
-            ])), layout[0]);
+                f.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::styled("Navidrome URL: ", bold()),
+                        Span::raw(url_disp),
+                    ])),
+                    layout[0],
+                );
 
-            f.render_widget(Paragraph::new(Line::from(vec![
-                Span::styled("Username:      ", bold()),
-                Span::raw(usr_disp),
-            ])), layout[1]);
+                f.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::styled("Username:      ", bold()),
+                        Span::raw(usr_disp),
+                    ])),
+                    layout[1],
+                );
 
-            f.render_widget(Paragraph::new(Line::from(vec![
-                Span::styled("Password:      ", bold()),
-                Span::raw(pwd_disp),
-            ])), layout[2]);
+                f.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::styled("Password:      ", bold()),
+                        Span::raw(pwd_disp),
+                    ])),
+                    layout[2],
+                );
 
-            f.render_widget(
-                Paragraph::new("TAB: Next | ENTER: Confirm | ESC: Cancel")
-                    .style(Style::default().fg(Color::Yellow)),
-                layout[4],
-            );
-        }).unwrap();
+                f.render_widget(
+                    Paragraph::new("TAB: Next | ENTER: Confirm | ESC: Cancel")
+                        .style(Style::default().fg(Color::Yellow)),
+                    layout[4],
+                );
+            })
+            .unwrap();
 
         if let Event::Key(key) = event::read().unwrap() {
             match key.code {
@@ -102,10 +113,25 @@ pub fn run_setup_wizard() -> Config {
                 KeyCode::Right => cursor += 1,
 
                 KeyCode::Backspace => match field {
-                    Field::Url => { if cursor > 0 { url.remove(cursor - 1); cursor -= 1; } }
-                    Field::User => { if cursor > 0 { user.remove(cursor - 1); cursor -= 1; } }
-                    Field::Pass => { if cursor > 0 { pass.remove(cursor - 1); cursor -= 1; } }
-                }
+                    Field::Url => {
+                        if cursor > 0 {
+                            url.remove(cursor - 1);
+                            cursor -= 1;
+                        }
+                    }
+                    Field::User => {
+                        if cursor > 0 {
+                            user.remove(cursor - 1);
+                            cursor -= 1;
+                        }
+                    }
+                    Field::Pass => {
+                        if cursor > 0 {
+                            pass.remove(cursor - 1);
+                            cursor -= 1;
+                        }
+                    }
+                },
 
                 KeyCode::Enter => {
                     // Only finalize when password field is focused
@@ -148,7 +174,7 @@ pub fn run_setup_wizard() -> Config {
                         pass.insert(cursor, c);
                         cursor += 1;
                     }
-                }
+                },
 
                 _ => {}
             }

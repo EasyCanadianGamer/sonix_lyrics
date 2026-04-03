@@ -1,7 +1,7 @@
 // src/config.rs
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::collections::HashMap;
 
 use crate::setup::run_setup_wizard;
 
@@ -37,20 +37,18 @@ impl Config {
     }
 
     pub fn load() -> Self {
-        let contents = fs::read_to_string(Self::config_path())
-            .expect("Failed to read config.conf");
+        let contents = fs::read_to_string(Self::config_path()).expect("Failed to read config.conf");
 
         let mut map = HashMap::new();
 
         for line in contents.lines() {
             let l = line.trim();
-            if l.is_empty() || l.starts_with('#') { continue; }
+            if l.is_empty() || l.starts_with('#') {
+                continue;
+            }
 
             if let Some((k, v)) = l.split_once('=') {
-                map.insert(
-                    k.trim().to_string(),
-                    v.trim().trim_matches('"').to_string(),
-                );
+                map.insert(k.trim().to_string(), v.trim().trim_matches('"').to_string());
             }
         }
 
@@ -60,13 +58,15 @@ impl Config {
             navidrome_token: map.get("NAVIDROME_TOKEN").unwrap().clone(),
             navidrome_salt: map.get("NAVIDROME_SALT").unwrap().clone(),
 
-            refresh_interval: map.get("REFRESH_INTERVAL")
+            refresh_interval: map
+                .get("REFRESH_INTERVAL")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(2),
 
-            karaoke_enabled: map.get("KARAOKE_ENABLED")
+            karaoke_enabled: map
+                .get("KARAOKE_ENABLED")
                 .map(|v| v.eq_ignore_ascii_case("true"))
-                .unwrap_or(false),
+                .unwrap_or(true),
         }
     }
 
@@ -76,7 +76,7 @@ impl Config {
         std::fs::create_dir_all(dir).unwrap();
 
         let data = format!(
-r#"# Sonix Lyrics Config
+            r#"# Sonix Lyrics Config
 
 NAVIDROME_URL = {}
 NAVIDROME_USER = {}

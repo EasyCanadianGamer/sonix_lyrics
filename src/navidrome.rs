@@ -1,8 +1,7 @@
 use reqwest::blocking::ClientBuilder;
 use serde::Deserialize;
-use thiserror::Error;
-use chrono::{DateTime, Utc};
 use std::time::Duration;
+use thiserror::Error;
 
 use crate::config::Config;
 
@@ -13,9 +12,6 @@ pub enum NavidromeError {
 
     #[error("Invalid response")]
     InvalidResponse,
-
-    #[error("No song playing")]
-    NoTrack,
 }
 
 #[derive(Debug, Clone)]
@@ -31,44 +27,13 @@ pub struct PlaylistTrack {
     pub title: String,
     pub artist: String,
     pub duration: u32,
-}
-
-#[derive(Debug, Clone)]
-pub struct Track {
-    pub title: String,
-    pub artist: String,
-    pub album: String,
-    pub duration: u32,
-
-    pub played_timestamp: Option<DateTime<Utc>>,
+    pub cover_art_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct SubsonicResponse<T> {
     #[serde(rename = "subsonic-response")]
     response: T,
-}
-
-#[derive(Debug, Deserialize)]
-struct NowPlayingWrapper {
-    status: String,
-    #[serde(rename = "nowPlaying")]
-    now_playing: Option<NowPlaying>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NowPlaying {
-    #[serde(default)]
-    entry: Vec<Entry>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Entry {
-    title: Option<String>,
-    artist: Option<String>,
-    album: Option<String>,
-    duration: Option<u32>,
-    played: Option<String>,
 }
 
 // ---- serde types for getPlaylists ----
@@ -102,6 +67,8 @@ struct PlaylistTrackEntry {
     title: Option<String>,
     artist: Option<String>,
     duration: Option<u32>,
+    #[serde(rename = "coverArt")]
+    cover_art: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,7 +83,7 @@ struct PlaylistInner {
     entry: Vec<PlaylistTrackEntry>,
 }
 
-// ---- helper: build base auth query string ----
+// ---- helpers ----
 
 fn auth_params(cfg: &Config) -> String {
     format!(
@@ -162,47 +129,23 @@ pub fn get_playlist_tracks(cfg: &Config, id: &str) -> Result<Vec<PlaylistTrack>,
         title: e.title.unwrap_or_default(),
         artist: e.artist.unwrap_or_default(),
         duration: e.duration.unwrap_or(0),
+        cover_art_id: e.cover_art,
     }).collect())
 }
 
-pub fn jukebox_play(cfg: &Config, track_ids: &[String]) -> Result<(), NavidromeError> {
-    let id_params: String = track_ids.iter().map(|id| format!("&id={}", id)).collect();
-    let url = format!(
-        "{}/rest/jukeboxControl?action=set&{}{}",
-        cfg.navidrome_url, auth_params(cfg), id_params
-    );
-    make_client()?.get(url).send()?.error_for_status()?;
-    Ok(())
+pub fn stream_url(cfg: &Config, track_id: &str) -> String {
+    format!("{}/rest/stream?id={}&{}", cfg.navidrome_url, track_id, auth_params(cfg))
 }
 
-pub fn get_current_track(cfg: &Config) -> Result<Track, NavidromeError> {
-    let url = format!("{}/rest/getNowPlaying?{}", cfg.navidrome_url, auth_params(cfg));
-    let resp = make_client()?.get(url).send()?.error_for_status()?;
-    let parsed: SubsonicResponse<NowPlayingWrapper> = resp.json()?;
-
-    if parsed.response.status != "ok" {
-        return Err(NavidromeError::InvalidResponse);
-    }
-
-    let entries = parsed.response.now_playing
-        .ok_or(NavidromeError::NoTrack)?
-        .entry;
-
-    if entries.is_empty() {
-        return Err(NavidromeError::NoTrack);
-    }
-
-    let e = &entries[0];
-    let played_timestamp = e.played
-        .as_ref()
-        .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
-        .map(|dt| dt.with_timezone(&Utc));
-
-    Ok(Track {
-        title: e.title.clone().unwrap_or_default(),
-        artist: e.artist.clone().unwrap_or_default(),
-        album: e.album.clone().unwrap_or_default(),
-        duration: e.duration.unwrap_or(0),
-        played_timestamp,
-    })
+pub fn fetch_cover_art_bytes(cfg: &Config, cover_art_id: &str) -> Option<Vec<u8>> {
+    let url = format!(
+        "{}/rest/getCoverArt?id={}&size=120&{}",
+        cfg.navidrome_url, cover_art_id, auth_params(cfg)
+    );
+    let bytes = make_client().ok()?
+        .get(url)
+        .send().ok()?
+        .error_for_status().ok()?
+        .bytes().ok()?;
+    Some(bytes.to_vec())
 }
